@@ -14,7 +14,7 @@
  *
  */
 definition(
-    name: "Turn off after motion stops",
+    name: "Turn off when not in use",
     namespace: "bravenel",
     author: "Bruce Ravenel",
     description: "Turn some switches off some minutes after motion stops",
@@ -27,8 +27,10 @@ definition(
 preferences {
 	section("Select Switches, Motions and Minutes") {
 		input "switches", "capability.switch", title: "Switches", required: true, multiple: true
+    input "locks", "capability.lock", title: "Locks", required: false, multiple: true
 		input "motions", "capability.motionSensor", title: "Motions", required: true, multiple: true
 		input "minutes", "number", title: "Minutes", required: false
+		input "gates", "capability.contactSensor", title: "Disable Gate Switches", required: false, multiple: true
 	}
 }
 
@@ -44,6 +46,17 @@ def updated() {
 def initialize() {
 	subscribe(motions, "motion.active", activeHandler)
 	subscribe(motions, "motion.inactive", inactiveHandler)
+  subscribe(gates, "contact.opened", contactOpenHandler)
+  subscribe(gates, "contact.closed", contactClosedHandler)
+}
+
+def contactClosedHandler(evt) {
+  // Give motion sensors time to sense activity
+  runIn(30, scheduleOff)
+}
+
+def contactOpenHandler(evt) {
+  state.pending = false
 }
 
 def activeHandler(evt) {
@@ -51,10 +64,24 @@ def activeHandler(evt) {
 }
 
 def inactiveHandler(evt) {
-	state.pending = !("active" in motions.currentMotion)
-	if(state.pending) {if(minutes) runIn(minutes*60, switchesOff) else switchesOff()}
+  scheduleOff()
+}
+
+def scheduleOff() {
+	state.pending = !("active" in motions.currentMotion) && !("open" in gates?.currentContact)
+	if(state.pending) {
+    if(minutes) {
+      runIn(minutes*60, switchesOff)
+    }
+    else {
+      switchesOff()
+    }
+  }
 }
 
 def switchesOff() {
-	if(state.pending) switches.off()
+	if(state.pending) {
+        switches.off()
+        locks?.lock()
+    }
 }
